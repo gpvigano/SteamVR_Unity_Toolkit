@@ -33,10 +33,13 @@ namespace VRTK
         public bool hideHandsAtSwitch = false;
         [Tooltip("Reset hand position and rotation when enabling them.")]
         public bool resetHandsAtSwitch = true;
-        [Tooltip("Whether mouse movement always acts as input or requires a button press.")]
-        public MouseInputMode mouseMovementInput = MouseInputMode.Always;
-        [Tooltip("Lock the mouse cursor to the game window when the mouse movement key is pressed.")]
+		
+        [Header("Mouse cursor lock")]
+
+        [Tooltip("Lock the mouse cursor to the game window.")]
         public bool lockMouseToView = true;
+        [Tooltip("Whether the mouse movement always acts as input or requires a button press.")]
+        public MouseInputMode mouseMovementInput = MouseInputMode.Always;
 
         [Header("Adjustments")]
 
@@ -48,6 +51,8 @@ namespace VRTK
         public float playerMoveMultiplier = 5;
         [Tooltip("Adjust player rotation speed.")]
         public float playerRotationMultiplier = 0.5f;
+        [Tooltip("Adjust player sprint speed.")]
+        public float playerSprintMultiplier = 2;
 
         [Header("Operation Key Bindings")]
 
@@ -63,6 +68,12 @@ namespace VRTK
         public KeyCode rotationPosition = KeyCode.LeftShift;
         [Tooltip("Key used to switch between X/Y and X/Z axis.")]
         public KeyCode changeAxis = KeyCode.LeftControl;
+        [Tooltip("Key used to distance pickup with left hand.")]
+        public KeyCode distancePickupLeft = KeyCode.Mouse0;
+        [Tooltip("Key used to distance pickup with right hand.")]
+        public KeyCode distancePickupRight = KeyCode.Mouse1;
+        [Tooltip("Key used to enable distance pickup.")]
+        public KeyCode distancePickupModifier = KeyCode.LeftControl;
 
         [Header("Movement Key Bindings")]
 
@@ -74,6 +85,8 @@ namespace VRTK
         public KeyCode moveBackward = KeyCode.S;
         [Tooltip("Key used to move to the right.")]
         public KeyCode moveRight = KeyCode.D;
+        [Tooltip("Key used to sprint.")]
+        public KeyCode sprint = KeyCode.LeftShift;
 
         [Header("Controller Key Bindings")]
         [Tooltip("Key used to simulate trigger button.")]
@@ -103,11 +116,13 @@ namespace VRTK
         private Transform leftHand;
         private Transform currentHand;
         private Vector3 oldPos;
-        private Transform myCamera;
+        private Transform neck;
         private SDK_ControllerSim rightController;
         private SDK_ControllerSim leftController;
         private static GameObject cachedCameraRig;
         private static bool destroyed = false;
+        private float sprintMultiplier = 1;
+        private GameObject crossHairPanel;
 
         #endregion
 
@@ -130,7 +145,13 @@ namespace VRTK
 
         private void Awake()
         {
-            hintCanvas = transform.Find("Control Hints").gameObject;
+            VRTK_SDKManager.instance.AddBehaviourToToggleOnLoadedSetupChange(this);
+        }
+
+        private void OnEnable()
+        {
+            hintCanvas = transform.Find("Canvas/Control Hints").gameObject;
+            crossHairPanel = transform.Find("Canvas/CrosshairPanel").gameObject;
             hintText = hintCanvas.GetComponentInChildren<Text>();
             hintCanvas.SetActive(showControlHints);
             rightHand = transform.Find("RightHand");
@@ -139,7 +160,7 @@ namespace VRTK
             leftHand.gameObject.SetActive(false);
             currentHand = rightHand;
             oldPos = Input.mousePosition;
-            myCamera = transform.Find("Camera");
+            neck = transform.Find("Neck");
             leftHand.Find("Hand").GetComponent<Renderer>().material.color = Color.red;
             rightHand.Find("Hand").GetComponent<Renderer>().material.color = Color.green;
             rightController = rightHand.GetComponent<SDK_ControllerSim>();
@@ -164,10 +185,14 @@ namespace VRTK
                 };
                 controllerSDK.SetKeyMappings(keyMappings);
             }
+            rightHand.gameObject.SetActive(true);
+            leftHand.gameObject.SetActive(true);
+            crossHairPanel.SetActive(false);
         }
 
         private void OnDestroy()
         {
+            VRTK_SDKManager.instance.RemoveBehaviourToToggleOnLoadedSetupChange(this);
             destroyed = true;
         }
 
@@ -189,6 +214,10 @@ namespace VRTK
                 {
                     oldPos = Input.mousePosition;
                 }
+            }
+            else
+            {
+                Cursor.lockState = lockMouseToView ? CursorLockMode.Locked : CursorLockMode.None;
             }
 
             if (Input.GetKeyDown(handsOnOff))
@@ -226,6 +255,30 @@ namespace VRTK
             else
             {
                 UpdateRotation();
+                if(Input.GetKeyDown(distancePickupRight) && Input.GetKey(distancePickupModifier))
+                {
+                    TryPickup(true);
+                }
+                else if(Input.GetKeyDown(distancePickupLeft) && Input.GetKey(distancePickupModifier))
+                {
+                    TryPickup(false);
+                }
+                if(Input.GetKey(sprint))
+                {
+                    sprintMultiplier = playerSprintMultiplier;
+                }
+                else
+                {
+                    sprintMultiplier = 1;
+                }
+                if(Input.GetKeyDown(distancePickupModifier))
+                {
+                    crossHairPanel.SetActive(true);
+                }
+                else if(Input.GetKeyUp(distancePickupModifier))
+                {
+                    crossHairPanel.SetActive(false);
+                }
             }
 
             UpdatePosition();
@@ -233,6 +286,34 @@ namespace VRTK
             if (showControlHints)
             {
                 UpdateHints();
+            }
+        }
+
+        private void TryPickup(bool rightHand)
+        {
+            Ray screenRay = Camera.main.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            RaycastHit hit;
+            if(Physics.Raycast(screenRay, out hit))
+            {
+                VRTK_InteractableObject io = hit.collider.gameObject.GetComponent<VRTK_InteractableObject>();
+                if(io)
+                {
+                    GameObject hand;
+                    if(rightHand)
+                    {
+                        hand = VRTK_DeviceFinder.GetControllerRightHand();
+                    }
+                    else
+                    {
+                        hand = VRTK_DeviceFinder.GetControllerLeftHand();
+                    }
+                    VRTK_InteractGrab grab = hand.GetComponent<VRTK_InteractGrab>();
+                    if(grab.GetGrabbedObject() == null)
+                    {
+                        hand.GetComponent<VRTK_InteractTouch>().ForceTouch(hit.collider.gameObject);
+                        grab.AttemptGrab();
+                    }
+                }
             }
         }
 
@@ -284,11 +365,11 @@ namespace VRTK
 
             if (IsAcceptingMouseInput())
             {
-                Vector3 rot = transform.rotation.eulerAngles;
+                Vector3 rot = transform.localRotation.eulerAngles;
                 rot.y += (mouseDiff * playerRotationMultiplier).x;
                 transform.localRotation = Quaternion.Euler(rot);
 
-                rot = myCamera.rotation.eulerAngles;
+                rot = neck.rotation.eulerAngles;
 
                 if (rot.x > 180)
                 {
@@ -299,28 +380,29 @@ namespace VRTK
                 {
                     rot.x += (mouseDiff * playerRotationMultiplier).y * -1;
                     rot.x = Mathf.Clamp(rot.x, -79, 79);
-                    myCamera.rotation = Quaternion.Euler(rot);
+                    neck.rotation = Quaternion.Euler(rot);
                 }
             }
         }
 
         private void UpdatePosition()
         {
+            float moveMod = Time.deltaTime * playerMoveMultiplier * sprintMultiplier;
             if (Input.GetKey(moveForward))
             {
-                transform.Translate(transform.forward * Time.deltaTime * playerMoveMultiplier, Space.World);
+                transform.Translate(transform.forward * moveMod, Space.World);
             }
             else if (Input.GetKey(moveBackward))
             {
-                transform.Translate(-transform.forward * Time.deltaTime * playerMoveMultiplier, Space.World);
+                transform.Translate(-transform.forward * moveMod, Space.World);
             }
             if (Input.GetKey(moveLeft))
             {
-                transform.Translate(-transform.right * Time.deltaTime * playerMoveMultiplier, Space.World);
+                transform.Translate(-transform.right * moveMod, Space.World);
             }
             else if (Input.GetKey(moveRight))
             {
-                transform.Translate(transform.right * Time.deltaTime * playerMoveMultiplier, Space.World);
+                transform.Translate(transform.right * moveMod, Space.World);
             }
         }
 
@@ -363,19 +445,21 @@ namespace VRTK
             }
 
             // WASD Movement
-            string WASD = moveForward.ToString() + moveLeft.ToString() + moveBackward.ToString() + moveRight.ToString();
-            hints += "<b>" + WASD + "</b>: " + "Move Player/Playspace\n";
+            string movementKeys = moveForward.ToString() + moveLeft.ToString() + moveBackward.ToString() + moveRight.ToString();
+            hints += "Toggle Control Hints: " + key(toggleControlHints) + "\n\n";
+            hints += "Move Player/Playspace: <b>" + movementKeys + "</b>\n";
+            hints += "Sprint Modifier: (" + key(sprint) + ")\n\n";
 
             if (isHand)
             {
                 // Controllers
                 if (Input.GetKey(rotationPosition))
                 {
-                    hints += "Mouse: Controller Rotation" + mouseInputRequires + "\n";
+                    hints += "Mouse: <b>Controller Rotation" + mouseInputRequires + "</b>\n";
                 }
                 else
                 {
-                    hints += "Mouse: Controller Position" + mouseInputRequires + "\n";
+                    hints += "Mouse: <b>Controller Position" + mouseInputRequires + "</b>\n";
                 }
                 hints += "Modes: HMD (" + key(handsOnOff) + "), Rotation (" + key(rotationPosition) + ")\n";
 
@@ -395,7 +479,7 @@ namespace VRTK
                     pressMode = "Touch";
                 }
 
-                hints += "Button Press Mode Modifiers: Touch (" + key(touchModifier) + "), Hair Touch (" + key(hairTouchModifier) + ")\n";
+                hints += "\nButton Press Mode Modifiers: Touch (" + key(touchModifier) + "), Hair Touch (" + key(hairTouchModifier) + ")\n";
 
                 hints += "Trigger " + pressMode + ": " + key(triggerAlias) + "\n";
                 hints += "Grip " + pressMode + ": " + key(gripAlias) + "\n";
@@ -410,8 +494,11 @@ namespace VRTK
             else
             {
                 // HMD Input
-                hints += "Mouse: HMD Rotation" + mouseInputRequires + "\n";
+                hints += "Mouse: <b>HMD Rotation" + mouseInputRequires + "</b>\n";
                 hints += "Modes: Controller (" + key(handsOnOff) + ")\n";
+                hints += "Distance Pickup Modifier: (" + key(distancePickupModifier) + ")\n";
+                hints += "Distance Pickup Left Hand: (" + key(distancePickupLeft) + ")\n";
+                hints += "Distance Pickup Right Hand: (" + key(distancePickupRight) + ")\n";
             }
 
             hintText.text = hints.TrimEnd();

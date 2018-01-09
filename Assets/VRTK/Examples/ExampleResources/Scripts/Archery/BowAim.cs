@@ -99,7 +99,7 @@
                     fired = false;
                     fireOffset = Time.time;
                 }
-                if (!releaseRotation.Equals(baseRotation))
+                if (releaseRotation != baseRotation)
                 {
                     transform.localRotation = Quaternion.Lerp(releaseRotation, baseRotation, (Time.time - fireOffset) * 8);
                 }
@@ -161,10 +161,10 @@
             currentPull = Mathf.Clamp((Vector3.Distance(holdControl.transform.position, stringControl.transform.position) - pullOffset) * pullMultiplier, 0, maxPullDistance);
             bowAnimation.SetFrame(currentPull);
 
-            if (!currentPull.ToString("F2").Equals(previousPull.ToString("F2")))
+            if (currentPull.ToString("F2") != previousPull.ToString("F2"))
             {
-                VRTK_SharedMethods.TriggerHapticPulse(VRTK_DeviceFinder.GetControllerIndex(holdControl.gameObject), bowVibration);
-                VRTK_SharedMethods.TriggerHapticPulse(VRTK_DeviceFinder.GetControllerIndex(stringControl.gameObject), stringVibration);
+                VRTK_ControllerHaptics.TriggerHapticPulse(VRTK_ControllerReference.GetControllerReference(holdControl.gameObject), bowVibration);
+                VRTK_ControllerHaptics.TriggerHapticPulse(VRTK_ControllerReference.GetControllerReference(stringControl.gameObject), stringVibration);
             }
             previousPull = currentPull;
         }
